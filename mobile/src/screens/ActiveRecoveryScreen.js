@@ -1,10 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import MapView, { Polyline, Marker } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
 import { apiPost } from '../api';
 import { distanceMeters, formatDistance, formatDuration } from '../utils/geo';
+
+const MAP_HTML = `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="referrer" content="origin">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>html,body,#map{height:100%;margin:0;padding:0}</style>
+</head><body><div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var map, line, startM, meM;
+function init(){
+  if(!window.L){
+    document.getElementById('map').innerHTML='<p style="padding:16px;font-family:sans-serif">Map could not load. Check your internet connection. Tracking still works.</p>';
+    return;
+  }
+  map=L.map('map').setView([12.9716,77.5946],15);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+  line=L.polyline([],{color:'#1a56db',weight:5}).addTo(map);
+}
+window.updatePath=function(pts){
+  if(!map||!pts.length) return;
+  line.setLatLngs(pts);
+  var last=pts[pts.length-1];
+  if(!startM){startM=L.circleMarker(pts[0],{radius:8,color:'#fff',weight:2,fillColor:'#16a34a',fillOpacity:1}).addTo(map);}
+  if(!meM){meM=L.circleMarker(last,{radius:9,color:'#fff',weight:3,fillColor:'#1a56db',fillOpacity:1}).addTo(map);}
+  else{meM.setLatLng(last);}
+  map.setView(last,Math.max(map.getZoom(),17));
+};
+init();
+</script></body></html>`;
 
 export default function ActiveRecoveryScreen({ route, navigation }) {
   useKeepAwake();
@@ -17,13 +47,14 @@ export default function ActiveRecoveryScreen({ route, navigation }) {
   const [meters, setMeters] = useState(0);
   const [seconds, setSeconds] = useState(0);
   const [stopping, setStopping] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
 
   const pathRef = useRef([]);
   const metersRef = useRef(0);
   const pendingRef = useRef([]);
   const pendingMetersRef = useRef(0);
   const watchRef = useRef(null);
-  const mapRef = useRef(null);
+  const webRef = useRef(null);
   const allowLeave = useRef(false);
 
   const flush = async () => {
@@ -56,6 +87,14 @@ export default function ActiveRecoveryScreen({ route, navigation }) {
   };
 
   useEffect(() => {
+    if (!mapReady || !path.length || !webRef.current) return;
+    const coords = path.map((p) => [p.latitude, p.longitude]);
+    webRef.current.injectJavaScript(
+      `window.updatePath && window.updatePath(${JSON.stringify(coords)}); true;`
+    );
+  }, [path, mapReady]);
+
+  useEffect(() => {
     const t = setInterval(() => setSeconds((Date.now() - startedAt.current) / 1000), 1000);
     const f = setInterval(flush, 10000);
     return () => { clearInterval(t); clearInterval(f); };
@@ -81,7 +120,6 @@ export default function ActiveRecoveryScreen({ route, navigation }) {
             speed: c.speed && c.speed > 0 ? c.speed : 0,
             timestamp: new Date(loc.timestamp).toISOString(),
           });
-          mapRef.current?.animateCamera({ center: { latitude: c.latitude, longitude: c.longitude }, zoom: 17 });
         }
       );
       if (cancelled) sub.remove(); else watchRef.current = sub;
@@ -143,15 +181,15 @@ export default function ActiveRecoveryScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
+      <WebView
+        ref={webRef}
         style={styles.map}
-        showsUserLocation
-        initialRegion={{ latitude: 12.9716, longitude: 77.5946, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
-      >
-        {path.length > 1 && <Polyline coordinates={path} strokeWidth={5} strokeColor="#1a56db" />}
-        {path.length > 0 && <Marker coordinate={path[0]} title="Start" pinColor="green" />}
-      </MapView>
+        originWhitelist={['*']}
+        source={{ html: MAP_HTML, baseUrl: 'https://easyfin-staff-recovery.onrender.com' }}
+        javaScriptEnabled
+        domStorageEnabled
+        onLoadEnd={() => setMapReady(true)}
+      />
       <View style={styles.panel}>
         <Text style={styles.name}>{customer?.name || 'Recovery in progress'}</Text>
         <View style={styles.row}>
