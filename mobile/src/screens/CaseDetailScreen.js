@@ -17,7 +17,7 @@ function Row({ label, value }) {
   );
 }
 
-export default function CaseDetailScreen({ route }) {
+export default function CaseDetailScreen({ route, navigation }) {
   const { id } = route.params;
   const [item, setItem] = useState(null);
   const [error, setError] = useState('');
@@ -74,7 +74,7 @@ export default function CaseDetailScreen({ route }) {
 
       <TouchableOpacity
         style={styles.button}
-        onPress={() => Alert.alert('Start Recovery', 'This is built in the next step.')}
+        onPress={() => navigation.navigate('StartRecovery', { caseId: id, customer, loan })}
       >
         <Text style={styles.buttonText}>Start Recovery</Text>
       </TouchableOpacity>
