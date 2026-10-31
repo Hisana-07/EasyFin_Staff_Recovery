@@ -8,6 +8,7 @@ const StopEvent = require('../models/StopEvent');
 const Evidence = require('../models/Evidence');
 const memoryStore = require('../services/store');
 const { getIsConnected } = require('../config/db');
+const rules = require('../services/recoveryRules');
 
 exports.submitReport = async (req, res) => {
   try {
@@ -28,6 +29,20 @@ exports.submitReport = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Session ID is required to generate a recovery report.'
+      });
+    }
+
+    const completionError = await rules.validateCompletion({
+      sessionId,
+      staffId,
+      paymentAmount,
+      visitNotes
+    });
+
+    if (completionError) {
+      return res.status(400).json({
+        success: false,
+        message: completionError
       });
     }
 
@@ -84,6 +99,10 @@ exports.submitReport = async (req, res) => {
         visitNotes: visitNotes || session.visitNotes || '',
         placesVisited: finalStops || [],
         evidence: finalEvidence || [],
+        vehicleType: session.vehicleType || '',
+        vehicleNumber: session.vehicleNumber || '',
+        startLocation: session.startLocation,
+        endLocation: session.endLocation,
         submittedAt: new Date()
       });
 
@@ -150,6 +169,10 @@ exports.submitReport = async (req, res) => {
         visitNotes: visitNotes || session.visitNotes || '',
         placesVisited: finalStops || [],
         evidence: finalEvidence || [],
+        vehicleType: session.vehicleType || '',
+        vehicleNumber: session.vehicleNumber || '',
+        startLocation: session.startLocation,
+        endLocation: session.endLocation,
         submittedAt: new Date().toISOString()
       };
 

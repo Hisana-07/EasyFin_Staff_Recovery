@@ -73,6 +73,16 @@ test('Backend API Suite', async (t) => {
     assert.strictEqual(searchRes.body.cases[0].customer.name, 'Vikramaditya Roy');
   });
 
+  await t.test('5b. Start Recovery without vehicle details is rejected', async () => {
+    const res = await request(app)
+      .post('/api/v1/recovery/start')
+      .set('Authorization', 'Bearer ' + authToken)
+      .send({ assignmentId: 'asgn_001', customerId: 'cust_001', loanId: 'loan_001' });
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.success, false);
+  });
+
   await t.test('6. Recovery Session Lifecycle - Start Recovery', async () => {
     const res = await request(app)
       .post('/api/v1/recovery/start')
@@ -81,6 +91,8 @@ test('Backend API Suite', async (t) => {
         assignmentId: 'asgn_001',
         customerId: 'cust_001',
         loanId: 'loan_001',
+        vehicleType: 'BIKE',
+        vehicleNumber: 'KA01AB1234',
         initialLocation: {
           latitude: 12.9716,
           longitude: 77.5946,
@@ -147,6 +159,35 @@ test('Backend API Suite', async (t) => {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.session.outcome, 'PAYMENT_COLLECTED');
     assert.strictEqual(res.body.session.paymentAmount, 12000);
+  });
+
+  await t.test('9a. Ending without a proof photo is rejected', async () => {
+    const res = await request(app)
+      .post('/api/v1/recovery/sessions/' + activeSessionId + '/end')
+      .set('Authorization', 'Bearer ' + authToken)
+      .send({ outcome: 'PAYMENT_COLLECTED', paymentAmount: 12000, visitNotes: 'Paid in cash.' });
+
+    assert.strictEqual(res.status, 400);
+    assert.match(res.body.message, /photo/i);
+  });
+
+  await t.test('9b. Upload proof photo', async () => {
+    const res = await request(app)
+      .post('/api/v1/recovery/sessions/' + activeSessionId + '/evidence')
+      .set('Authorization', 'Bearer ' + authToken)
+      .attach('photo', Buffer.from('fake-image-bytes'), 'proof.jpg');
+
+    assert.strictEqual(res.status, 201);
+  });
+
+  await t.test('9c. Ending with no payment and no remarks is rejected', async () => {
+    const res = await request(app)
+      .post('/api/v1/recovery/sessions/' + activeSessionId + '/end')
+      .set('Authorization', 'Bearer ' + authToken)
+      .send({ outcome: 'CUSTOMER_UNAVAILABLE', paymentAmount: 0, visitNotes: '' });
+
+    assert.strictEqual(res.status, 400);
+    assert.match(res.body.message, /remarks/i);
   });
 
   await t.test('10. End Recovery Session', async () => {

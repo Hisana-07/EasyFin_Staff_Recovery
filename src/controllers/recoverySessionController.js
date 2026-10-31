@@ -7,16 +7,32 @@ const Evidence = require('../models/Evidence');
 const memoryStore = require('../services/store');
 const { getIsConnected } = require('../config/db');
 const { getDistanceInMeters } = require('../services/stopDetectionService');
+const rules = require('../services/recoveryRules');
 
 exports.startSession = async (req, res) => {
   try {
     const staffId = req.staff._id.toString();
-    const { assignmentId, customerId, loanId, initialLocation } = req.body;
+    const {
+      assignmentId,
+      customerId,
+      loanId,
+      initialLocation,
+      vehicleType,
+      vehicleNumber
+    } = req.body;
 
     if (!assignmentId) {
       return res.status(400).json({
         success: false,
         message: 'Assignment ID is required to start a recovery session.'
+      });
+    }
+
+    const vehicleCheck = rules.validateVehicle(vehicleType, vehicleNumber);
+    if (vehicleCheck.error) {
+      return res.status(400).json({
+        success: false,
+        message: vehicleCheck.error
       });
     }
 
@@ -44,7 +60,10 @@ exports.startSession = async (req, res) => {
         loanId,
         startTime: new Date(),
         status: 'ACTIVE',
-        outcome: 'PENDING'
+        outcome: 'PENDING',
+        vehicleType: vehicleCheck.vehicleType,
+        vehicleNumber: vehicleCheck.vehicleNumber,
+        startLocation: rules.pickLocation(initialLocation)
       });
 
       await newSession.save();
@@ -103,7 +122,10 @@ exports.startSession = async (req, res) => {
         outcome: 'PENDING',
         paymentAmount: 0,
         visitNotes: '',
-        isReportSubmitted: false
+        isReportSubmitted: false,
+        vehicleType: vehicleCheck.vehicleType,
+        vehicleNumber: vehicleCheck.vehicleNumber,
+        startLocation: rules.pickLocation(initialLocation)
       };
 
       memoryStore.sessions.push(newSession);
@@ -505,8 +527,23 @@ exports.endSession = async (req, res) => {
       paymentAmount,
       promiseDate,
       distanceMeters,
-      durationSeconds
+      durationSeconds,
+      endLocation
     } = req.body;
+
+    const completionError = await rules.validateCompletion({
+      sessionId,
+      staffId,
+      paymentAmount,
+      visitNotes
+    });
+
+    if (completionError) {
+      return res.status(400).json({
+        success: false,
+        message: completionError
+      });
+    }
 
     const endTime = new Date();
 
@@ -527,6 +564,9 @@ exports.endSession = async (req, res) => {
 
       session.endTime = endTime;
       session.status = 'COMPLETED';
+
+      const finalLocation = rules.pickLocation(endLocation);
+      if (finalLocation) session.endLocation = finalLocation;
       session.durationSeconds = calculatedDuration;
 
       if (distanceMeters !== undefined) session.distanceMeters = distanceMeters;
@@ -571,6 +611,9 @@ exports.endSession = async (req, res) => {
 
       session.endTime = endTime.toISOString();
       session.status = 'COMPLETED';
+
+      const finalLocation = rules.pickLocation(endLocation);
+      if (finalLocation) session.endLocation = finalLocation;
       session.durationSeconds = calculatedDuration;
 
       if (distanceMeters !== undefined) session.distanceMeters = distanceMeters;

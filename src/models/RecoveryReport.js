@@ -40,6 +40,12 @@ const recoveryReportSchema = new mongoose.Schema(
     paymentAmount: { type: Number, default: 0 },
     promiseDate: { type: Date, default: null },
     visitNotes: { type: String, default: '' },
+
+    // Vehicle and route endpoints
+    vehicleType: { type: String, default: '' },
+    vehicleNumber: { type: String, default: '' },
+    startLocation: { latitude: { type: Number }, longitude: { type: Number } },
+    endLocation: { latitude: { type: Number }, longitude: { type: Number } },
     
     // Places visited snapshot
     placesVisited: [
