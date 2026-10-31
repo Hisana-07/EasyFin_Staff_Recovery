@@ -21,7 +21,6 @@ exports.startSession = async (req, res) => {
     }
 
     if (getIsConnected()) {
-      // Check for an active session to prevent accidental duplicates
       let activeSession = await RecoverySession.findOne({
         staffId,
         status: 'ACTIVE'
@@ -50,7 +49,6 @@ exports.startSession = async (req, res) => {
 
       await newSession.save();
 
-      // Update assignment status
       await Assignment.findByIdAndUpdate(assignmentId, {
         recoveryStatus: 'IN_PROGRESS',
         lastVisitDate: new Date()
@@ -74,8 +72,8 @@ exports.startSession = async (req, res) => {
         session: newSession
       });
     } else {
-      // Memory Store fallback
       await memoryStore.initDefaults();
+
       let activeSession = memoryStore.sessions.find(
         s => s.staffId === staffId && s.status === 'ACTIVE'
       );
@@ -110,8 +108,10 @@ exports.startSession = async (req, res) => {
 
       memoryStore.sessions.push(newSession);
 
-      // Update assignment
-      const asgn = memoryStore.assignments.find(a => a._id === assignmentId || a.assignmentId === assignmentId);
+      const asgn = memoryStore.assignments.find(
+        a => a._id === assignmentId || a.assignmentId === assignmentId
+      );
+
       if (asgn) {
         asgn.recoveryStatus = 'IN_PROGRESS';
         asgn.lastVisitDate = new Date().toISOString();
@@ -162,9 +162,17 @@ exports.getActiveSession = async (req, res) => {
         });
       }
 
-      const points = await TrackingPoint.find({ sessionId: session.sessionId }).sort({ timestamp: 1 });
-      const stops = await StopEvent.find({ sessionId: session.sessionId }).sort({ startTime: 1 });
-      const evidences = await Evidence.find({ sessionId: session.sessionId }).sort({ capturedAt: 1 });
+      const points = await TrackingPoint.find({
+        sessionId: session.sessionId
+      }).sort({ timestamp: 1 });
+
+      const stops = await StopEvent.find({
+        sessionId: session.sessionId
+      }).sort({ startTime: 1 });
+
+      const evidences = await Evidence.find({
+        sessionId: session.sessionId
+      }).sort({ capturedAt: 1 });
 
       return res.status(200).json({
         success: true,
@@ -176,6 +184,7 @@ exports.getActiveSession = async (req, res) => {
       });
     } else {
       await memoryStore.initDefaults();
+
       const session = memoryStore.sessions.find(
         s => s.staffId === staffId && s.status === 'ACTIVE'
       );
@@ -188,9 +197,17 @@ exports.getActiveSession = async (req, res) => {
         });
       }
 
-      const stops = memoryStore.stops.filter(st => st.sessionId === session.sessionId);
-      const evidences = memoryStore.evidences.filter(e => e.sessionId === session.sessionId);
-      const points = memoryStore.trackingPoints.filter(p => p.sessionId === session.sessionId);
+      const stops = memoryStore.stops.filter(
+        st => st.sessionId === session.sessionId
+      );
+
+      const evidences = memoryStore.evidences.filter(
+        e => e.sessionId === session.sessionId
+      );
+
+      const points = memoryStore.trackingPoints.filter(
+        p => p.sessionId === session.sessionId
+      );
 
       return res.status(200).json({
         success: true,
@@ -202,6 +219,7 @@ exports.getActiveSession = async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Error retrieving active session:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to retrieve active session.'
@@ -223,6 +241,15 @@ exports.addTrackingPoints = async (req, res) => {
     }
 
     if (getIsConnected()) {
+      const session = await RecoverySession.findOne({ sessionId, staffId });
+
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
+      }
+
       const docs = points.map(p => ({
         sessionId,
         staffId,
@@ -248,6 +275,19 @@ exports.addTrackingPoints = async (req, res) => {
         message: `${points.length} tracking points recorded.`
       });
     } else {
+      await memoryStore.initDefaults();
+
+      const session = memoryStore.sessions.find(
+        s => s.sessionId === sessionId && s.staffId === staffId
+      );
+
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
+      }
+
       points.forEach(p => {
         memoryStore.trackingPoints.push({
           sessionId,
@@ -261,9 +301,9 @@ exports.addTrackingPoints = async (req, res) => {
         });
       });
 
-      const session = memoryStore.sessions.find(s => s.sessionId === sessionId);
-      if (session && incrementalDistanceMeters > 0) {
-        session.distanceMeters = (session.distanceMeters || 0) + incrementalDistanceMeters;
+      if (incrementalDistanceMeters > 0) {
+        session.distanceMeters =
+          (session.distanceMeters || 0) + incrementalDistanceMeters;
       }
 
       return res.status(200).json({
@@ -272,6 +312,7 @@ exports.addTrackingPoints = async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Error recording tracking points:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to record tracking points.'
@@ -283,6 +324,7 @@ exports.recordStop = async (req, res) => {
   try {
     const { sessionId } = req.params;
     const staffId = req.staff._id.toString();
+
     const {
       stopIndex,
       startTime,
@@ -295,7 +337,7 @@ exports.recordStop = async (req, res) => {
       dwellType
     } = req.body;
 
-    if (!placeName || !latitude || !longitude) {
+    if (!placeName || latitude == null || longitude == null) {
       return res.status(400).json({
         success: false,
         message: 'Readable place name, latitude, and longitude are required.'
@@ -303,6 +345,15 @@ exports.recordStop = async (req, res) => {
     }
 
     if (getIsConnected()) {
+      const session = await RecoverySession.findOne({ sessionId, staffId });
+
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
+      }
+
       const stop = await StopEvent.create({
         sessionId,
         staffId,
@@ -323,11 +374,26 @@ exports.recordStop = async (req, res) => {
         stop
       });
     } else {
+      await memoryStore.initDefaults();
+
+      const session = memoryStore.sessions.find(
+        s => s.sessionId === sessionId && s.staffId === staffId
+      );
+
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
+      }
+
       const stop = {
         _id: `stop_${Date.now()}`,
         sessionId,
         staffId,
-        stopIndex: stopIndex || memoryStore.stops.filter(s => s.sessionId === sessionId).length + 1,
+        stopIndex: stopIndex || memoryStore.stops.filter(
+          s => s.sessionId === sessionId
+        ).length + 1,
         startTime: startTime || new Date().toISOString(),
         endTime: endTime || new Date().toISOString(),
         durationSeconds: durationSeconds || 0,
@@ -347,6 +413,7 @@ exports.recordStop = async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Error recording stop:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to record stop.'
@@ -358,22 +425,32 @@ exports.updateSessionOutcome = async (req, res) => {
   try {
     const { sessionId } = req.params;
     const staffId = req.staff._id.toString();
+
     const { outcome, visitNotes, paymentAmount, promiseDate } = req.body;
 
     if (getIsConnected()) {
+      const update = {};
+
+      if (outcome !== undefined) update.outcome = outcome;
+      if (visitNotes !== undefined) update.visitNotes = visitNotes;
+      if (paymentAmount !== undefined) {
+        update.paymentAmount = Number(paymentAmount);
+      }
+      if (promiseDate !== undefined) {
+        update.promiseDate = promiseDate ? new Date(promiseDate) : null;
+      }
+
       const session = await RecoverySession.findOneAndUpdate(
         { sessionId, staffId },
-        {
-          outcome,
-          visitNotes,
-          paymentAmount: paymentAmount ? Number(paymentAmount) : 0,
-          promiseDate: promiseDate ? new Date(promiseDate) : null
-        },
+        { $set: update },
         { new: true }
       );
 
       if (!session) {
-        return res.status(404).json({ success: false, message: 'Session not found.' });
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
       }
 
       return res.status(200).json({
@@ -382,15 +459,25 @@ exports.updateSessionOutcome = async (req, res) => {
         session
       });
     } else {
-      const session = memoryStore.sessions.find(s => s.sessionId === sessionId && s.staffId === staffId);
+      await memoryStore.initDefaults();
+
+      const session = memoryStore.sessions.find(
+        s => s.sessionId === sessionId && s.staffId === staffId
+      );
+
       if (!session) {
-        return res.status(404).json({ success: false, message: 'Session not found.' });
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
       }
 
-      if (outcome) session.outcome = outcome;
+      if (outcome !== undefined) session.outcome = outcome;
       if (visitNotes !== undefined) session.visitNotes = visitNotes;
-      if (paymentAmount !== undefined) session.paymentAmount = Number(paymentAmount);
-      if (promiseDate) session.promiseDate = promiseDate;
+      if (paymentAmount !== undefined) {
+        session.paymentAmount = Number(paymentAmount);
+      }
+      if (promiseDate !== undefined) session.promiseDate = promiseDate;
 
       return res.status(200).json({
         success: true,
@@ -399,6 +486,7 @@ exports.updateSessionOutcome = async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Error updating session outcome:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to update session outcome.'
@@ -410,30 +498,47 @@ exports.endSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
     const staffId = req.staff._id.toString();
-    const { outcome, visitNotes, paymentAmount, promiseDate, distanceMeters, durationSeconds } = req.body;
+
+    const {
+      outcome,
+      visitNotes,
+      paymentAmount,
+      promiseDate,
+      distanceMeters,
+      durationSeconds
+    } = req.body;
 
     const endTime = new Date();
 
     if (getIsConnected()) {
       const session = await RecoverySession.findOne({ sessionId, staffId });
+
       if (!session) {
-        return res.status(404).json({ success: false, message: 'Session not found.' });
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
       }
 
-      const calculatedDuration = durationSeconds || Math.round((endTime.getTime() - new Date(session.startTime).getTime()) / 1000);
+      const calculatedDuration = durationSeconds ||
+        Math.round(
+          (endTime.getTime() - new Date(session.startTime).getTime()) / 1000
+        );
 
       session.endTime = endTime;
       session.status = 'COMPLETED';
       session.durationSeconds = calculatedDuration;
+
       if (distanceMeters !== undefined) session.distanceMeters = distanceMeters;
       if (outcome) session.outcome = outcome;
       if (visitNotes !== undefined) session.visitNotes = visitNotes;
-      if (paymentAmount !== undefined) session.paymentAmount = Number(paymentAmount);
+      if (paymentAmount !== undefined) {
+        session.paymentAmount = Number(paymentAmount);
+      }
       if (promiseDate) session.promiseDate = new Date(promiseDate);
 
       await session.save();
 
-      // Update assignment
       await Assignment.findByIdAndUpdate(session.assignmentId, {
         recoveryStatus: outcome || 'COMPLETED',
         notes: visitNotes || '',
@@ -446,23 +551,41 @@ exports.endSession = async (req, res) => {
         session
       });
     } else {
-      const session = memoryStore.sessions.find(s => s.sessionId === sessionId && s.staffId === staffId);
+      await memoryStore.initDefaults();
+
+      const session = memoryStore.sessions.find(
+        s => s.sessionId === sessionId && s.staffId === staffId
+      );
+
       if (!session) {
-        return res.status(404).json({ success: false, message: 'Session not found.' });
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found.'
+        });
       }
 
-      const calculatedDuration = durationSeconds || Math.round((endTime.getTime() - new Date(session.startTime).getTime()) / 1000);
+      const calculatedDuration = durationSeconds ||
+        Math.round(
+          (endTime.getTime() - new Date(session.startTime).getTime()) / 1000
+        );
 
       session.endTime = endTime.toISOString();
       session.status = 'COMPLETED';
       session.durationSeconds = calculatedDuration;
+
       if (distanceMeters !== undefined) session.distanceMeters = distanceMeters;
       if (outcome) session.outcome = outcome;
       if (visitNotes !== undefined) session.visitNotes = visitNotes;
-      if (paymentAmount !== undefined) session.paymentAmount = Number(paymentAmount);
+      if (paymentAmount !== undefined) {
+        session.paymentAmount = Number(paymentAmount);
+      }
       if (promiseDate) session.promiseDate = promiseDate;
 
-      const asgn = memoryStore.assignments.find(a => a._id === session.assignmentId || a.assignmentId === session.assignmentId);
+      const asgn = memoryStore.assignments.find(
+        a => a._id === session.assignmentId ||
+             a.assignmentId === session.assignmentId
+      );
+
       if (asgn) {
         asgn.recoveryStatus = outcome || 'COMPLETED';
         asgn.notes = visitNotes || '';
@@ -480,6 +603,91 @@ exports.endSession = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to end recovery session.'
+    });
+  }
+};
+
+// GET COMPLETE JOURNEY DETAILS
+exports.getJourneyDetails = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const staffId = req.staff._id.toString();
+
+    let session;
+    let points;
+    let stops;
+    let evidences;
+
+    if (getIsConnected()) {
+      session = await RecoverySession.findOne({ sessionId, staffId });
+
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Recovery session not found.'
+        });
+      }
+
+      points = await TrackingPoint.find({ sessionId, staffId })
+        .sort({ timestamp: 1 });
+
+      stops = await StopEvent.find({ sessionId, staffId })
+        .sort({ startTime: 1 });
+
+      evidences = await Evidence.find({ sessionId })
+        .sort({ capturedAt: 1 });
+
+    } else {
+      await memoryStore.initDefaults();
+
+      session = memoryStore.sessions.find(
+        s => s.sessionId === sessionId && s.staffId === staffId
+      );
+
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Recovery session not found.'
+        });
+      }
+
+      points = memoryStore.trackingPoints
+        .filter(p => p.sessionId === sessionId && p.staffId === staffId)
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      stops = memoryStore.stops
+        .filter(s => s.sessionId === sessionId && s.staffId === staffId)
+        .sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+
+      evidences = memoryStore.evidences
+        .filter(e => e.sessionId === sessionId);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Journey details retrieved successfully.',
+      journey: {
+        session,
+        trackingPoints: points,
+        stops,
+        evidences,
+        summary: {
+          totalTrackingPoints: points.length,
+          totalStops: stops.length,
+          totalEvidence: evidences.length,
+          distanceMeters: session.distanceMeters || 0,
+          durationSeconds: session.durationSeconds || 0,
+          status: session.status,
+          outcome: session.outcome
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error retrieving journey details:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve journey details.'
     });
   }
 };

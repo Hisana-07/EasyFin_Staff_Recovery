@@ -49,5 +49,10 @@ router.get(
   protect,
   evidenceController.getSessionEvidence
 );
-
+// Get complete journey details
+router.get(
+  '/sessions/:sessionId/journey',
+  protect,
+  recoverySessionController.getJourneyDetails
+);
 module.exports = router;
