@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const Staff = require('../models/Staff');
 const memoryStore = require('../services/store');
+const { sendOtpSms } = require('../services/smsService');
 const { getIsConnected } = require('../config/db');
 
 const otpStore = new Map();
@@ -63,10 +64,26 @@ exports.sendOtp = async (req, res) => {
     const phone = normalizePhone(req.body.phone);
 
     if (!/^[6-9]\d{9}$/.test(phone)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Enter a valid 10-digit Indian mobile number.'
+          try {
+      const result = await sendOtpSms(phone, otp);
+
+      return res.status(200).json({
+        success: true,
+        message: result.sent
+          ? 'OTP sent to your mobile number.'
+          : 'Demo OTP generated successfully.',
+        // The OTP is only returned in demo mode, never when a real SMS was sent
+        ...(result.demo ? { demoOtp: otp } : {})
       });
+    } catch (smsError) {
+      otpStore.delete(phone);
+      console.error('SMS error:', smsError.message);
+
+      return res.status(502).json({
+        success: false,
+        message: 'Could not send the OTP SMS. Please try again.'
+      });
+    }
     }
 
     const staff = await findStaffByPhone(phone);
