@@ -71,10 +71,10 @@ exports.sendOtp = async (req, res) => {
 
     const staff = await findStaffByPhone(phone);
 
-    if (!staff) {
-      return res.status(404).json({
+        if (!staff) {
+      return res.status(403).json({
         success: false,
-        message: 'No active staff account is registered with this number.'
+        message: 'Access denied. This number is not registered as recovery staff.'
       });
     }
 
